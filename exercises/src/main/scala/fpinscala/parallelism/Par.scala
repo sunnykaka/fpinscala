@@ -8,6 +8,8 @@ object Par {
   def run[A](s: ExecutorService)(a: Par[A]): Future[A] = a(s)
 
   def unit[A](a: A): Par[A] = (es: ExecutorService) => UnitFuture(a) // `unit` is represented as a function that returns a `UnitFuture`, which is a simple implementation of `Future` that just wraps a constant value. It doesn't use the `ExecutorService` at all. It's always done and can't be cancelled. Its `get` method simply returns the value that we gave it.
+
+  def lazyUnit[A](a: A): Par[A] = fork(unit(a))
   
   private case class UnitFuture[A](get: A) extends Future[A] {
     def isDone = true 
@@ -51,6 +53,55 @@ object Par {
 
 
   }
+
+  def asyncF[A, B](f: A => B): A => Par[B] = a => lazyUnit(f(a))
+
+  def sequence[A](ps: List[Par[A]]): Par[List[A]] = {
+    map(sequenceBalanced(ps.toIndexedSeq))(_.toList)
+  }
+
+  def sequenceBalanced[A](as: IndexedSeq[Par[A]]): Par[IndexedSeq[A]] = fork {
+    if(as.isEmpty) unit(Vector[A]())
+    else if(as.size == 1) map(as.head)(Vector(_))
+    else {
+      val (l, r) = as.splitAt(as.size / 2)
+      map2(sequenceBalanced(l), sequenceBalanced(r))(_ ++ _)
+    }
+  }
+
+  def parFilter[A](as: List[A])(f: A => Boolean): Par[List[A]] = fork {
+    val f = (a: A) => if(f(a)) Option(a) else None
+    val a = sequence(as.map(asyncF(f)))
+    map(a)(_.flatten)
+  }
+
+  def choiceN[A](n: Par[Int])(choices: List[Par[A]]): Par[A] =
+    es => {
+      val r = n(es).get()
+      choices(r)(es)
+    }
+
+  def choice[A](cond: Par[Boolean])(t: Par[A], f: Par[A]): Par[A] =
+    choiceN(map(cond)(if(_) 1 else 0))(f :: t :: Nil)
+
+  def choiceMap[K,V](key: Par[K])(choices: Map[K,Par[V]]): Par[V] =
+    es => {
+      val r = key(es).get()
+      choices(r)(es)
+    }
+
+  def chooser[A,B](pa: Par[A])(choices: A => Par[B]): Par[B] =
+    es => {
+      val r = pa(es).get()
+      choices(r)(es)
+    }
+
+  def join[A](a: Par[Par[A]]): Par[A] =
+    es => {
+      val r = a(es).get()
+      r(es)
+    }
+
 }
 
 object Examples {
