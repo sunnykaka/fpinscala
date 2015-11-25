@@ -35,6 +35,9 @@ object RNG {
     (if(n < 0) -(n + 1) else n , r)
   }
 
+  def boolean(rng: RNG): (Boolean, RNG) =
+    rng.nextInt match { case (i,rng2) => (i%2==0,rng2) }
+
   def double(rng: RNG): (Double, RNG) = {
     val (n, r) = nonNegativeInt(rng)
     (n / Int.MaxValue.toDouble + 1, r)
@@ -101,4 +104,6 @@ case class Machine(locked: Boolean, candies: Int, coins: Int)
 object State {
   type Rand[A] = State[RNG, A]
   def simulateMachine(inputs: List[Input]): State[Machine, (Int, Int)] = ???
+  def unit[S, A](a: A): State[S, A] =
+    State(s => (a, s))
 }
